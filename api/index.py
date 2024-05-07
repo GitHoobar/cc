@@ -96,47 +96,50 @@ async def download_and_convert_video(video_file: UploadFile = File(...)):
 
 @app.get("/convert")
 def convert():
-    def format_time(seconds):
-        hours = int(seconds // 3600)
-        minutes = int((seconds % 3600) // 60)
-        seconds = int(seconds % 60)
-        milliseconds = int((seconds - int(seconds)) * 1000)  # Convert fractional part to milliseconds
-        return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+    def convert_seconds_to_srt_format(
+        seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
+    ):
+        assert seconds >= 0, "non-negative timestamp expected"
+        milliseconds = round(seconds * 1000.0)
 
-    def convert_to_srt(json_data):
-        srt_content = ""
+        hours = milliseconds // 3_600_000
+        milliseconds -= hours * 3_600_000
+
+        minutes = milliseconds // 60_000
+        milliseconds -= minutes * 60_000
+
+        seconds = milliseconds // 1_000
+        milliseconds -= seconds * 1_000
+
+        hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else "00:"
+        return (
+            f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
+        )
+
+    def generate_srt_from_words(data):
+        srt = ""
         segment_number = 1
-        for segment in json_data:
-            sentence = segment['text']
-            segment_start_time = segment['start']
+
+        for segment in data:
+            start_time_segment = convert_seconds_to_srt_format(segment['start'])
+            end_time_segment = convert_seconds_to_srt_format(segment['end'])
+
             for word in segment['words']:
-                if 'start' in word and 'end' in word:
-                    word_start_time = segment_start_time + word['start']
-                    word_end_time = segment_start_time + word['end']
-                    start_time = format_time(word_start_time)
-                    end_time = format_time(word_end_time)
-            
-                    highlighted_word = f"<u>{word['word']}</u>" if word['word'] != "." else word['word']
-            
-                    highlighted_sentence = sentence.replace(word['word'], highlighted_word, 1)
-                    srt_content += f"{segment_number}\n{start_time} --> {end_time}\n{highlighted_sentence}\n\n"
-                    segment_number += 1
-        return srt_content
+                start_time_word = convert_seconds_to_srt_format(word['start'])
+                end_time_word = convert_seconds_to_srt_format(word['end'])
+
+                srt += f"{segment_number}\n"
+                srt += f"{start_time_word} --> {end_time_word}\n"
+                srt += f"{word['word']}\n\n"
+
+            segment_number += 1
+
+        return srt
 
 
     def convert_video():
-        # Define the output file path
-        output_file_path = "../conversions/output.txt"
-        
-        # Construct the WhisperX command with output redirection
-        whisperx_command = f"whisperx '../downloads/input_audio.mp3' --model medium.en --output_dir . --align_model WAV2VEC2_ASR_LARGE_LV60K_960H --batch_size 4 --highlight_words True > {output_file_path}"
-        
-        # Execute the WhisperX command
-        result = subprocess.run(whisperx_command, shell=True, capture_output=True, text=True)
-        
-        # Check if the command was successful
 
-    try:
+    
         device = "cuda"
         
         audio_file = os.path.abspath("../downloads/input_audio.mp3")
@@ -162,18 +165,10 @@ def convert():
         output_directory = "../conversions/"
         os.makedirs(output_directory, exist_ok=True)
         
-        # Define the path for the output JSON file
-        output_file_path = os.path.join(output_directory, "output_segments.json")
-
-        # Write segments to a JSON file
-        with open(output_file_path, "w") as f:
-            json.dump(result["segments"], f)
-
-        json_output_file_path = os.path.join(output_directory, "output_segments.json")
         srt_output_file_path = os.path.join(output_directory, "output.srt")
 
         # Convert segments to SRT format
-        srt_content = convert_to_srt(result["segments"])
+        srt_content = generate_srt_from_words(result)
 
         # Write SRT content to a file
         with open(srt_output_file_path, 'w') as file:
@@ -181,12 +176,7 @@ def convert():
 
         print("SRT file has been created successfully.")
         return {"message": "SRT file has been created successfully."}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-
-
+    
 
 
 @app.post("/subtitle")
