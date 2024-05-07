@@ -1,6 +1,7 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@import url("video.js/dist/video-js.css");
 
 :root {
   --foreground-rgb: 0, 0, 0;
