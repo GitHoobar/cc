@@ -117,17 +117,19 @@ def convert():
         )
 
     def format_output(segments):
-    output = ""
-    for i, segment in enumerate(segments):
-        words = segment['text'].split()
-        start_time = segment['start']
-        duration = (segment['end'] - start_time) / len(words)
-        for j, word in enumerate(words):
-            end_time = start_time + duration
-            output += f"{i + 1 + j}\n{convert_seconds_to_srt_format(start_time)} --> {convert_seconds_to_srt_format(end_time)}\n"
-            output += f"{word}\n"
-            start_time = end_time
-    return output
+        output = ""
+        segment_counter = 1
+        for segment in segments:
+            words = segment['text'].split()
+            start_time = segment['start']
+            duration = (segment['end'] - start_time) / len(words)
+            for word in words:
+                end_time = start_time + duration
+                output += f"{segment_counter}\n{convert_seconds_to_srt_format(start_time)} --> {convert_seconds_to_srt_format(end_time)}\n"
+                output += f"{word}\n"
+                start_time = end_time
+                segment_counter += 1
+        return output
 
     def convert_video():
 
