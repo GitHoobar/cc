@@ -93,50 +93,35 @@ async def download_and_convert_video(video_file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Uploaded file must be in MP4 format")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
+@app.get("/convert")
+def convert():
+    def convert_seconds_to_srt_format(
+        seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
+    ):
+        assert seconds >= 0, "non-negative timestamp expected"
+        milliseconds = round(seconds * 1000.0)
 
-def convert_seconds_to_srt_format(
-    seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
-):
-    assert seconds >= 0, "non-negative timestamp expected"
-    milliseconds = round(seconds * 1000.0)
+        hours = milliseconds // 3_600_000
+        milliseconds -= hours * 3_600_000
 
-    hours = milliseconds // 3_600_000
-    milliseconds -= hours * 3_600_000
+        minutes = milliseconds // 60_000
+        milliseconds -= minutes * 60_000
 
-    minutes = milliseconds // 60_000
-    milliseconds -= minutes * 60_000
+        seconds = milliseconds // 1_000
+        milliseconds -= seconds * 1_000
 
-    seconds = milliseconds // 1_000
-    milliseconds -= seconds * 1_000
+        hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else "00:"
+        return (
+            f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
+        )
 
-    hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else "00:"
-    return (
-        f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
-    )
+    def convert_video():
+        device = "cuda"
+        
+        audio_file = os.path.abspath("../downloads/input_audio.mp3")
 
-        def format_output(segments):
-        output = ""
-        for i, segment in enumerate(segments):
-            words = segment['text'].split()
-            start_time = segment['start']
-            duration = (segment['end'] - start_time) / len(words)
-            for j, word in enumerate(words):
-                end_time = start_time + duration
-                output += f"{i + 1 + j}\n{convert_seconds_to_srt_format(start_time)} --> {convert_seconds_to_srt_format(end_time)}\n"
-                output += f"{word}\n"
-                start_time = end_time
-        return output
-
-        def convert_video():
-
-
-            device = "cuda"
-            
-            audio_file = os.path.abspath("../downloads/input_audio.mp3")
-
-            batch_size = 4
-            compute_type = "float16"
+        batch_size = 4
+        compute_type = "float16"
 
         # Load model with specified parameters
         model = whisperx.load_model("medium", device, compute_type=compute_type)
@@ -152,21 +137,35 @@ def convert_seconds_to_srt_format(
 
         # Align segments
         result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
-
+        
         output_directory = "../conversions/"
         os.makedirs(output_directory, exist_ok=True)
-
+        
         srt_output_file_path = os.path.join(output_directory, "output.srt")
 
-            
-            srt_content = format_output(result['segments'])
+        # Convert segments to SRT format
+        output = ""
+        segment_counter = 1
+        for segment in result['segments']:
+            words = segment['text'].split()
+            start_time = segment['start']
+            duration = (segment['end'] - start_time) / len(words)
+            for word in words:
+                end_time = start_time + duration
+                output += f"{segment_counter}\n{convert_seconds_to_srt_format(start_time)} --> {convert_seconds_to_srt_format(end_time)}\n"
+                output += f"{word}\n"
+                start_time = end_time
+                segment_counter += 1
 
         # Write SRT content to a file
         with open(srt_output_file_path, 'w') as file:
-            file.write(srt)
+            file.write(output)
 
         print("SRT file has been created successfully.")
         return {"message": "SRT file has been created successfully."}
+
+    return convert_video()
+
 @app.post("/subtitle")
 async def add_subtitle(subtitle_file: UploadFile = File(...), video_file: UploadFile = File(...)):
     try:
