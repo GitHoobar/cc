@@ -93,92 +93,85 @@ async def download_and_convert_video(video_file: UploadFile = File(...)):
             raise HTTPException(status_code=400, detail="Uploaded file must be in MP4 format")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+
+def convert_seconds_to_srt_format(
+    seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
+):
+    assert seconds >= 0, "non-negative timestamp expected"
+    milliseconds = round(seconds * 1000.0)
+
+    hours = milliseconds // 3_600_000
+    milliseconds -= hours * 3_600_000
+
+    minutes = milliseconds // 60_000
+    milliseconds -= minutes * 60_000
+
+    seconds = milliseconds // 1_000
+    milliseconds -= seconds * 1_000
+
+    hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else "00:"
+    return (
+        f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
+    )
 
 @app.get("/convert")
-def convert():
-    def convert_seconds_to_srt_format(
-        seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
-    ):
-        assert seconds >= 0, "non-negative timestamp expected"
-        milliseconds = round(seconds * 1000.0)
+def convert_video():
+    device = "cuda"
+    audio_file = os.path.abspath("../downloads/input_audio.mp3")
+    batch_size = 4
+    compute_type = "float16"
 
-        hours = milliseconds // 3_600_000
-        milliseconds -= hours * 3_600_000
+    # Load model with specified parameters
+    model = whisperx.load_model("medium", device, compute_type=compute_type)
 
-        minutes = milliseconds // 60_000
-        milliseconds -= minutes * 60_000
+    # Load audio file
+    audio = whisperx.load_audio(audio_file)
 
-        seconds = milliseconds // 1_000
-        milliseconds -= seconds * 1_000
+    # Transcribe audio using the loaded model
+    result = model.transcribe(audio, batch_size=batch_size)
 
-        hours_marker = f"{hours:02d}:" if always_include_hours or hours > 0 else "00:"
-        return (
-            f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
-        )
+    # Load align model
+    model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
 
-    def generate_srt_from_words(data):
-        srt = ""
-        segment_number = 1
+    # Align segments
+    result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
-        for segment in data:
-            start_time_segment = convert_seconds_to_srt_format(segment['start'])
-            end_time_segment = convert_seconds_to_srt_format(segment['end'])
+    output_directory = "../conversions/"
+    os.makedirs(output_directory, exist_ok=True)
 
-            for word in segment['words']:
-                start_time_word = convert_seconds_to_srt_format(word['start'])
-                end_time_word = convert_seconds_to_srt_format(word['end'])
+    srt_output_file_path = os.path.join(output_directory, "output.srt")
 
-                srt += f"{segment_number}\n"
-                srt += f"{start_time_word} --> {end_time_word}\n"
-                srt += f"{word['word']}\n\n"
+    # Convert segments to SRT format
+    srt = ""
+    segment_number = 1
 
-            segment_number += 1
+    for segment in result:
+        print(type(segment))  # Add this line to check the type of segment
 
-        return srt
+        # Check if 'start' and 'end' are strings, convert them to floats if necessary
+        start_time_segment = float(segment['start']) if isinstance(segment['start'], str) else segment['start']
+        end_time_segment = float(segment['end']) if isinstance(segment['end'], str) else segment['end']
 
+        start_time_segment = convert_seconds_to_srt_format(start_time_segment)
+        end_time_segment = convert_seconds_to_srt_format(end_time_segment)
 
-    def convert_video():
+        for word in segment['words']:
+            start_time_word = convert_seconds_to_srt_format(word['start'])
+            end_time_word = convert_seconds_to_srt_format(word['end'])
 
-    
-        device = "cuda"
-        
-        audio_file = os.path.abspath("../downloads/input_audio.mp3")
+            srt += f"{segment_number}\n"
+            srt += f"{start_time_word} --> {end_time_word}\n"
+            srt += f"{word['word']}\n\n"
 
-        batch_size = 4
-        compute_type = "float16"
+        segment_number += 1
 
-        # Load model with specified parameters
-        model = whisperx.load_model("medium", device, compute_type=compute_type)
+    # Write SRT content to a file
+    with open(srt_output_file_path, 'w') as file:
+        file.write(srt)
 
-        # Load audio file
-        audio = whisperx.load_audio(audio_file)
-
-        # Transcribe audio using the loaded model
-        result = model.transcribe(audio, batch_size=batch_size)
-
-        # Load align model
-        model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
-
-        # Align segments
-        result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
-        
-        output_directory = "../conversions/"
-        os.makedirs(output_directory, exist_ok=True)
-        
-        srt_output_file_path = os.path.join(output_directory, "output.srt")
-
-        # Convert segments to SRT format
-        srt_content = generate_srt_from_words(result)
-
-        # Write SRT content to a file
-        with open(srt_output_file_path, 'w') as file:
-            file.write(srt_content)
-
-        print("SRT file has been created successfully.")
-        return {"message": "SRT file has been created successfully."}
-    
-
-
+    print("SRT file has been created successfully.")
+    return {"message": "SRT file has been created successfully."}
 @app.post("/subtitle")
 async def add_subtitle(subtitle_file: UploadFile = File(...), video_file: UploadFile = File(...)):
     try:
