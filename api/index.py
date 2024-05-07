@@ -165,14 +165,6 @@ def convert():
         output_directory = "../conversions/"
         os.makedirs(output_directory, exist_ok=True)
         
-        # Define the path for the output JSON file
-        output_file_path = os.path.join(output_directory, "output_segments.json")
-
-        # Write segments to a JSON file
-        with open(output_file_path, "w") as f:
-            json.dump(result["segments"], f)
-
-        json_output_file_path = os.path.join(output_directory, "output_segments.json")
         srt_output_file_path = os.path.join(output_directory, "output.srt")
 
         # Convert segments to SRT format
