@@ -68,9 +68,9 @@
 
               </div>
               <div className="w-[83%] mx-auto flex justify-center items-center">
-                <div className="relative w-[100%] h-[80%] xl:h-[93vh] xl:w-[100%] lg:h-[72vh] lg:w-[100%] md:h-[60vh] sm:h-[60vh] border border-white bg-[#5E5E5E]"></div>
+                <div className="relative w-[100%] h-[80%] xl:h-[93vh] xl:w-[100%] lg:h-[62vh] lg:w-[100%] md:h-[52vh] sm:h-[38vh] h-[22vh] border border-white bg-[#5E5E5E]"></div>
                 
-                  <div className="absolute left-1/2 top-[30%] transform -translate-x-1/2 -translate-y-1/2 h-[32%] w-[80%] top-[35%] xl:h-[80%] xl:w-[80%] xl:top-[75%] lg:h-[65%] lg:w-[80%] lg:top-[53%] md:h-[55%] md:w-[80%] md:top-[48%] sm:h-[57%] sm:w-[80%] sm:top-[48%]  z-5">
+                  <div className="absolute left-1/2 lg:top-[68%] md:top-[62%] sm:top-[64%] top-[50%] transform -translate-x-1/2 -translate-y-1/2 h-[32%] w-[80%] top-[35%] xl:h-[80%] xl:w-[80%] xl:top-[75%] lg:h-[65%] lg:w-[80%] lg:top-[53%] md:h-[55%] md:w-[80%] md:top-[48%] sm:h-[57%] sm:w-[80%] sm:top-[48%]  z-5">
                     
                       
                       <CldVideoPlayer

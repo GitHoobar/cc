@@ -19,6 +19,8 @@
 
 body {
   background-image: url(/captioncraft/public/images/dirtbgg.png);
+  background-repeat: no-repeat;
+  
 }
 
 @layer utilities {

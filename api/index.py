@@ -1,33 +1,27 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File
-from pytube import YouTube
+from fastapi import FastAPI, HTTPException
 import subprocess
 import whisperx
+import yt_dlp
 import os
 import json
 import tensorflow
 import torch
 
 app = FastAPI()
-
 @app.get("/download")
 def download_and_convert_video(video_link: str):
     try:
-        yt = YouTube(video_link)
-
         # Download video
-        video_stream = yt.streams.get_highest_resolution()
-        video_file_path = '../downloads/input_video.mp4'
-        video_stream.download(output_path='../downloads', filename='input_video.mp4')
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4',
+            'outtmpl': '../downloads/input_video.%(ext)s'
+        }
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download(['ytsearch:' + video_link])
         print("Video download completed successfully!")
 
-        # Download audio
-        audio_stream = yt.streams.get_audio_only()
-        audio_file_path = '../downloads/input_audio.m4a'
-        audio_stream.download(output_path='../downloads', filename='input_audio.m4a')
-        print("Audio download completed successfully!")
-
-        # Convert audio to MP3
-        input_file_path = os.path.abspath("../downloads/input_audio.m4a")
+        # Convert video to MP3
+        input_file_path = os.path.abspath("../downloads/input_video.mp4")
         output_file_path = os.path.abspath("../downloads/input_audio.mp3")
         ffmpeg_command = [
             "ffmpeg",
@@ -46,53 +40,7 @@ def download_and_convert_video(video_link: str):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-    
-upload_directory = "./uploads"
-download_directory = "./download"
 
-@app.post("/upload")
-async def download_and_convert_video(video_file: UploadFile = File(...)):
-    try:
-        # Check if the uploaded file is in MP4 format
-        if video_file.filename.endswith(".mp4"):
-            # Save the uploaded file to the server
-            video_content = await video_file.read()
-            video_path = os.path.join(upload_directory, video_file.filename)
-            with open(video_path, "wb") as video_writer:
-                video_writer.write(video_content)
-
-            # Define output file paths for MP3 and M4A files
-            mp3_path = os.path.join(download_directory, f"{os.path.splitext(video_file.filename)[0]}.mp3")
-            m4a_path = os.path.join(download_directory, f"{os.path.splitext(video_file.filename)[0]}.m4a")
-
-            # Convert video to MP3
-            ffmpeg_command_mp3 = [
-                "ffmpeg",
-                "-i", video_path,
-                "-vn", "-acodec", "libmp3lame", "-ar", "44100", "-ab", "320k", "-f", "mp3",
-                mp3_path
-            ]
-            subprocess.run(ffmpeg_command_mp3)
-
-            # Convert video to M4A
-            ffmpeg_command_m4a = [
-                "ffmpeg",
-                "-i", video_path,
-                "-vn", "-acodec", "aac", "-strict", "experimental", "-ac", "2",
-                m4a_path
-            ]
-            subprocess.run(ffmpeg_command_m4a)
-
-            return {
-                "message": "MP4 uploaded successfully. MP3 and M4A files have been created.",
-                "mp3_path": mp3_path,
-                "m4a_path": m4a_path
-            }
-
-        else:
-            raise HTTPException(status_code=400, detail="Uploaded file must be in MP4 format")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/convert")
 def convert():
     def convert_seconds_to_srt_format(
@@ -144,67 +92,73 @@ def convert():
         srt_output_file_path = os.path.join(output_directory, "output.srt")
 
         # Convert segments to SRT format
-        output = ""
-        segment_counter = 1
-        for segment in result['segments']:
-            words = segment['text'].split()
-            start_time = segment['start']
-            duration = (segment['end'] - start_time) / len(words)
-            for word in words:
-                end_time = start_time + duration
-                output += f"{segment_counter}\n{convert_seconds_to_srt_format(start_time)} --> {convert_seconds_to_srt_format(end_time)}\n"
-                output += f"{word}\n"
-                start_time = end_time
-                segment_counter += 1
+        srt_output = ""
+        segment_number = 1
+        
+        for segment in result['segments']:  # Access the 'segments' key to get the list of segments
+            word_number = 1
+            for word_info in segment['words']:
+                word = word_info['word']
+                start_time = convert_seconds_to_srt_format(word_info['start'], always_include_hours=True, decimal_marker=',')
+                end_time = convert_seconds_to_srt_format(word_info['end'], always_include_hours=True, decimal_marker=',')
+                
+                srt_output += f"{word_number}\n{start_time} --> {end_time}\n{word}\n\n"
+                word_number += 1
+                
+            segment_number += 1
 
         # Write SRT content to a file
         with open(srt_output_file_path, 'w') as file:
-            file.write(output)
+            file.write(srt_output)
 
         print("SRT file has been created successfully.")
         return {"message": "SRT file has been created successfully."}
 
     return convert_video()
 
+
 @app.post("/subtitle")
-async def add_subtitle(subtitle_file: UploadFile = File(...), video_file: UploadFile = File(...)):
+async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_file: str = "../downloads/input_video.mp4"):
     try:
-        # Check if the uploaded files are in SRT and MP4 format
-        if subtitle_file.filename.endswith(".srt") and video_file.filename.endswith(".mp4"):
-            # Save the uploaded files to the server
-            subtitle_content = await subtitle_file.read()
-            video_content = await video_file.read()
+        # Define file paths
+        subtitle_path = "../conversions/output.srt"
+        video_path = "../downloads/input_video.mp4"
+        ass_output_dir = "../subtitles/"
+        ass_output_path = os.path.join(ass_output_dir, "subtitles.ass")
+        output_video_avi_path = os.path.join(ass_output_dir, "output_video_with_subtitles.avi")
+        output_video_mp4_path = os.path.join(ass_output_dir, "output_video_with_subtitles.mp4")
 
-            # Define file paths
-            subtitle_path = "../conversions/output.srt"
-            video_path = "../downloads/input_video.mp4"
+        # Create the subtitles directory if it doesn't exist
+        os.makedirs(ass_output_dir, exist_ok=True)
 
-            # Write the subtitle content to the subtitle file
-            with open(subtitle_path, "wb") as subtitle_writer:
-                subtitle_writer.write(subtitle_content)
+        # Run ffmpeg command to convert SRT to ASS format
+        ffmpeg_srt_to_ass_command = [
+            "ffmpeg",
+            "-i", subtitle_path,
+            ass_output_path
+        ]
+        subprocess.run(ffmpeg_srt_to_ass_command)
 
-            # Write the video content to the video file
-            with open(video_path, "wb") as video_writer:
-                video_writer.write(video_content)
+        # Run ffmpeg command to burn subtitles onto the video
+        ffmpeg_burn_subtitles_command = [
+            "ffmpeg",
+            "-i", video_path,
+            "-vf", f"ass={ass_output_path}",
+            output_video_avi_path
+        ]
+        subprocess.run(ffmpeg_burn_subtitles_command)
 
-            # Create a directory for subtitles if it doesn't exist
-            subtitles_directory = "../subtitles"
-            os.makedirs(subtitles_directory, exist_ok=True)
+        # Run ffmpeg command to convert AVI to MP4 format
+        ffmpeg_convert_to_mp4_command = [
+            "ffmpeg",
+            "-i", output_video_avi_path,
+            output_video_mp4_path
+        ]
+        subprocess.run(ffmpeg_convert_to_mp4_command)
 
-            # Run ffmpeg command to burn subtitles onto the video
-            output_video_path = os.path.join(subtitles_directory, "output_video_with_subtitles.mp4")
-            ffmpeg_command = [
-                "ffmpeg",
-                "-i", video_path,
-                "-vf", f"subtitles={subtitle_path}",
-                "-c:a", "copy",
-                output_video_path
-            ]
-            subprocess.run(ffmpeg_command)
+        # Remove the AVI file
+        os.remove(output_video_avi_path)
 
-            return {"message": "Subtitles added successfully"}
-
-        else:
-            raise HTTPException(status_code=400, detail="Uploaded files must be in SRT and MP4 formats")
+        return {"message": "Subtitles added successfully", "output_video_path": output_video_mp4_path}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
