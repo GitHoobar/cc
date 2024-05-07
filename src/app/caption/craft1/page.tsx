@@ -1,10 +1,9 @@
     "use client";
 
-    import YouTubePlayer from "../../../../components/YoutubePlayer";
-    import { CldVideoPlayer } from "next-cloudinary";
+    import { CldVideoPlayer,CldUploadWidget } from "next-cloudinary";
     import 'next-cloudinary/dist/cld-video-player.css';
     import React, { ChangeEvent, useState, useEffect } from "react";
-    import axios, {AxiosResponse} from "axios";
+    
     import Spinner from "../../../../components/Spinner";
     
 
@@ -45,14 +44,16 @@
                 <div className="flex justify-center items-center">
                 <div className="flex justify-center items-center">
   <div className="minecraft-btn h-12 w-32 xl:text-[1rem] xl:w-64 text-center text-white text-[0.5rem] truncate p-2 border-2 border-b-4 hover:text-yellow-200 cursor-pointer">
-    <label htmlFor="file-upload" style={{fontFamily:'minecraft'}} >
-      Upload
-    </label>
-    <input
-      id="file-upload"
-      type="file"
-      style={{ display: 'none' }}
-    />
+    
+  <CldUploadWidget uploadPreset="<Your Upload Preset>">
+  {({ open }) => {
+    return (
+      <button style={{fontFamily:'minecraft'}} onClick={() => open()}>
+        Upload Video
+      </button>
+    );
+  }}
+</CldUploadWidget>
   </div>
 </div>
                 <div className="flex justify-center items-center">
