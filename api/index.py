@@ -116,26 +116,18 @@ def convert():
             f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
         )
 
-    def generate_srt_from_words(data):
-        srt = ""
-        segment_number = 1
-
-        for segment in data:
-            start_time_segment = convert_seconds_to_srt_format(segment['start'])
-            end_time_segment = convert_seconds_to_srt_format(segment['end'])
-
-            for word in segment['words']:
-                start_time_word = convert_seconds_to_srt_format(word['start'])
-                end_time_word = convert_seconds_to_srt_format(word['end'])
-
-                srt += f"{segment_number}\n"
-                srt += f"{start_time_word} --> {end_time_word}\n"
-                srt += f"{word['word']}\n\n"
-
-            segment_number += 1
-
-        return srt
-
+    def format_output(segments):
+    output = ""
+    for i, segment in enumerate(segments):
+        words = segment['text'].split()
+        start_time = segment['start']
+        duration = (segment['end'] - start_time) / len(words)
+        for j, word in enumerate(words):
+            end_time = start_time + duration
+            output += f"{i + 1 + j}\n{convert_seconds_to_srt_format(start_time)} --> {convert_seconds_to_srt_format(end_time)}\n"
+            output += f"{word}\n"
+            start_time = end_time
+    return output
 
     def convert_video():
 
@@ -167,8 +159,8 @@ def convert():
         
         srt_output_file_path = os.path.join(output_directory, "output.srt")
 
-        # Convert segments to SRT format
-        srt_content = generate_srt_from_words(result)
+        
+        srt_content = format_output(result['segments'])
 
         # Write SRT content to a file
         with open(srt_output_file_path, 'w') as file:
