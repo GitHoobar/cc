@@ -1,27 +1,50 @@
 from fastapi import FastAPI, HTTPException
 import subprocess
 import whisperx
-import yt_dlp
+from pytube import YouTube
 import os
-import json
-import tensorflow
 import torch
+import cloudinary
+import cloudinary.uploader
+from dotenv import load_dotenv
+load_dotenv()
+from fastapi.middleware.cors import CORSMiddleware
+
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
+
+
 
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["*"],
+)
 @app.get("/download")
 def download_and_convert_video(video_link: str):
     try:
+        yt = YouTube(video_link)
+
         # Download video
-        ydl_opts = {
-            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/mp4',
-            'outtmpl': '../downloads/input_video.%(ext)s'
-        }
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download(['ytsearch:' + video_link])
+        video_stream = yt.streams.get_highest_resolution()
+        video_file_path = '../downloads/input_video.mp4'
+        video_stream.download(output_path='../downloads', filename='input_video.mp4')
         print("Video download completed successfully!")
 
-        # Convert video to MP3
-        input_file_path = os.path.abspath("../downloads/input_video.mp4")
+        # Download audio
+        audio_stream = yt.streams.get_audio_only()
+        audio_file_path = '../downloads/input_audio.m4a'
+        audio_stream.download(output_path='../downloads', filename='input_audio.m4a')
+        print("Audio download completed successfully!")
+
+        # Convert audio to MP3
+        input_file_path = os.path.abspath("../downloads/input_audio.m4a")
         output_file_path = os.path.abspath("../downloads/input_audio.mp3")
         ffmpeg_command = [
             "ffmpeg",
@@ -155,10 +178,31 @@ async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_f
             output_video_mp4_path
         ]
         subprocess.run(ffmpeg_convert_to_mp4_command)
+         # Upload the output video with subtitles to Cloudinary
+       
 
         # Remove the AVI file
         os.remove(output_video_avi_path)
 
-        return {"message": "Subtitles added successfully", "output_video_path": output_video_mp4_path}
+        return {
+            "message": "Subtitles added successfully",
+            "output_video_path": output_video_mp4_path,
+        }
+
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.post("/cloud")
+async def upload_to_cloudinary(subtitle_file: str = "../conversions/output_video_with_subtitles.mp4"):
+    try:
+        # Upload the video to Cloudinary
+        upload_result = cloudinary.uploader.upload(subtitle_file, resource_type="video")
+        
+        # Get the public ID from the upload result
+        public_id = upload_result["public_id"]
+        
+        return {"public_id": public_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
