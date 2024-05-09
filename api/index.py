@@ -29,36 +29,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/upload")
-def upload_video():
-    try:
-        response = requests.get(f"http://localhost:8000/download?public_id")
-        video_url = response.json().get('url') 
-
-        return {"video_url": video_url} 
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    
-
 @app.get("/uploadconvert")
-def upload_convert_video(upPublicId: str):
+def upload_convert_video(upUrl: str):
     try:
-        upload_response = requests.get("http://localhost:8000/upload")
-        video_url = upload_response.text  # Assuming the response directly contains the video URL
-
-        # Download the video using the provided URL
-        download_response = requests.get(video_url)
+        
+        download_response = requests.get(upUrl)
+        download_response.raise_for_status()  # Raise HTTPError for bad response status
         video_content = download_response.content
         
-        # Save the downloaded video as an MP4 file
+        directory = '../downloads/'
+
+
+        os.makedirs(directory, exist_ok=True)
+
+        
         video_file_path = '../downloads/input_video.mp4'
         with open(video_file_path, 'wb') as video_file:
             video_file.write(video_content)
         
         print("Video download completed successfully!")
+
         
-        # Convert video to audio using FFmpeg
         input_file_path = video_file_path
         output_file_path = '../downloads/input_audio.mp3'
         ffmpeg_command = [
@@ -76,8 +67,12 @@ def upload_convert_video(upPublicId: str):
         
         return {"message": "Download and conversion completed successfully!"}
 
+    except requests.RequestException as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download video: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+    
 @app.get("/download")
 def download_and_convert_video(video_link: str):
     try:
@@ -86,13 +81,12 @@ def download_and_convert_video(video_link: str):
         video_stream.download(output_path='../downloads', filename='input_video.mp4')
         print("Video download completed successfully!")
 
-        # Download audio
         audio_stream = yt.streams.get_audio_only()
         audio_file_path = '../downloads/input_audio.m4a'
         audio_stream.download(output_path='../downloads', filename='input_audio.m4a')
         print("Audio download completed successfully!")
 
-        # Convert audio to MP3
+
         input_file_path = os.path.abspath("../downloads/input_audio.m4a")
         output_file_path = os.path.abspath("../downloads/input_audio.mp3")
         ffmpeg_command = [
@@ -144,30 +138,29 @@ def convert_video():
     batch_size = 4
     compute_type = "float16"
 
-    # Load model with specified parameters
     model = whisperx.load_model("medium", device, compute_type=compute_type)
 
-    # Load audio file
+    
     audio = whisperx.load_audio(audio_file)
 
-    # Transcribe audio using the loaded model
+    
     result = model.transcribe(audio, batch_size=batch_size)
 
-    # Load align model
+    
     model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
 
-    # Align segments
+    
     result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
     output_directory = "../conversions/"
     os.makedirs(output_directory, exist_ok=True)
     srt_output_file_path = os.path.join(output_directory, "output.srt")
 
-    # Convert segments to SRT format
+    
     srt_output = ""
     segment_number = 1
 
-    for segment in result['segments']:  # Access the 'segments' key to get the list of segments
+    for segment in result['segments']:  
         word_number = 1
         for word_info in segment['words']:
             word = word_info['word']
@@ -179,7 +172,7 @@ def convert_video():
 
         segment_number += 1
 
-    # Write SRT content to a file
+    
     with open(srt_output_file_path, 'w') as file:
         file.write(srt_output)
 
@@ -192,7 +185,7 @@ def convert_video():
 @app.post("/subtitle")
 async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_file: str = "../downloads/input_video.mp4"):
     try:
-        # Define file paths
+        
         subtitle_path = "../conversions/output.srt"
         video_path = "../downloads/input_video.mp4"
         ass_output_dir = "../subtitles/"
@@ -200,10 +193,10 @@ async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_f
         output_video_avi_path = os.path.join(ass_output_dir, "output_video_with_subtitles.avi")
         output_video_mp4_path = os.path.join(ass_output_dir, "output_video_with_subtitles.mp4")
 
-        # Create the subtitles directory if it doesn't exist
+        
         os.makedirs(ass_output_dir, exist_ok=True)
 
-        # Run ffmpeg command to convert SRT to ASS format
+        
         ffmpeg_srt_to_ass_command = [
             "ffmpeg",
             "-i", subtitle_path,
@@ -211,7 +204,7 @@ async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_f
         ]
         subprocess.run(ffmpeg_srt_to_ass_command)
 
-        # Run ffmpeg command to burn subtitles onto the video
+        
         ffmpeg_burn_subtitles_command = [
             "ffmpeg",
             "-i", video_path,
@@ -220,17 +213,17 @@ async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_f
         ]
         subprocess.run(ffmpeg_burn_subtitles_command)
 
-        # Run ffmpeg command to convert AVI to MP4 format
+        
         ffmpeg_convert_to_mp4_command = [
             "ffmpeg",
             "-i", output_video_avi_path,
             output_video_mp4_path
         ]
         subprocess.run(ffmpeg_convert_to_mp4_command)
-         # Upload the output video with subtitles to Cloudinary
+
        
 
-        # Remove the AVI file
+        
         os.remove(output_video_avi_path)
 
         return {
@@ -246,10 +239,10 @@ async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_f
 @app.post("/cloud")
 async def upload_to_cloudinary(subtitle_file: str = "../subtitles/output_video_with_subtitles.mp4"):
     try:
-        # Upload the video to Cloudinary
+        
         upload_result = cloudinary.uploader.upload(subtitle_file, resource_type="video",cloud_name="dso9pgxen")
         
-        # Get the public ID from the upload result
+        
         public_id = upload_result["public_id"]
         
         return {"public_id": public_id}

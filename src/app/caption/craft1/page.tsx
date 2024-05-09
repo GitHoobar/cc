@@ -14,40 +14,52 @@
       const [loading, setLoading] = useState<boolean>(false);
       const [showVideoPlayer, setShowVideoPlayer] = useState(false);
       const [public_id, setPublicId] = useState("");
-      const [upPublicId,setUpPublicId] = useState("")
+      const [upurl,setUpUrl] = useState("");
+      
 
 
       const handleUploadSuccess = (response:any) => {
         console.log("Upload successful");
         console.log("url:", response.info.url);
-        const upPublicId=response.info.public_id
-
+        const upUrl = response.info.url; // Storing response.info.url in a variable
+    handleDownload(upUrl);
+      }
        
 
       
-const handleDownload = async () => {
+      const handleDownload = async (upUrl:any) => {
+        try {
+          setLoading(true); 
+      
+          
+          axios.get(`http://localhost:8000/uploadconvert?upUrl=${upUrl}`)
+            .then(async (response) => {
+              console.log("Download request sent successfully!");
+              
+              await axios.get("http://localhost:8000/convert");
+              console.log("Convert request sent successfully!");
+      
+              
+              await axios.post("http://localhost:8000/subtitle");
+              console.log("Subtitles request sent successfully!");
 
-
-  try {
-    setLoading(true); 
-    const response = await axios.get(`http://localhost:8000/uploadconvert/cloud_name=dso9pgxen"/video/upload/public_id=${upPublicId}.mp4`);
-    console.log("Download request sent successfully!");
-    await axios.get("http://localhost:8000/convert");
-    console.log("Convert request sent successfully!");
-
-    await axios.post("http://localhost:8000/subtitle");
-    console.log("Subtitles request sent successfully!");
-
-    const cloudResponse = await axios.post("http://localhost:8000/cloud?cloud_name=dso9pgxen");
-    console.log("Public ID:", cloudResponse.data.public_id);
-    setPublicId(cloudResponse.data.public_id);
-
-  } catch (error) {
-    console.error("Error", error);
-  } finally {
-    setLoading(false);
-  }
-};
+              const cloudResponse = await axios.post("http://localhost:8000/cloud?cloud_name=dso9pgxen");
+              console.log("Public ID:", cloudResponse.data.public_id);
+              setPublicId(cloudResponse.data.public_id);
+            })
+            .catch(error => {
+              console.error("Error", error);
+            })
+            .finally(() => {
+              setLoading(false);
+            });
+      
+        } catch (error) {
+          console.error("Error", error);
+          setLoading(false);
+        }
+      };
+      
 
 const handleGoButtonClick = () => {
   console.log("go");
@@ -71,7 +83,7 @@ const handleGoButtonClick = () => {
     })
     .catch(error => {
       console.error("Error", error);
-      // Handle errors if any
+
     })
     .finally(() => {
       setLoading(false);
@@ -138,7 +150,7 @@ const handleGoButtonClick = () => {
 </CldUploadWidget>
   </div>
 </div>           
-{upPublicId && (
+{upurl && (
                 <div className="flex justify-center items-center">
                   <button onClick={handleDownload}
                     
@@ -191,4 +203,4 @@ const handleGoButtonClick = () => {
         </>
       );
     }
-  }
+  
