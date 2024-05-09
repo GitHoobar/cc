@@ -1,63 +1,93 @@
     "use client";
 
-    import { CldVideoPlayer,CldUploadWidget } from "next-cloudinary";
+    import { CldVideoPlayer,CldUploadWidget,CldUploadWidgetProps } from "next-cloudinary";
     import 'next-cloudinary/dist/cld-video-player.css';
     import React, { ChangeEvent, useState, useEffect } from "react";
     import axios from "axios";
     import Spinner from "../../../../components/Spinner";
-    
+    interface CustomCldUploadWidgetProps extends CldUploadWidgetProps {
+      cloudName: string;
+    }
 
     export default function Craft() {
       const [url, setUrl] = useState<string>("");
       const [loading, setLoading] = useState<boolean>(false);
       const [showVideoPlayer, setShowVideoPlayer] = useState(false);
       const [public_id, setPublicId] = useState("");
+      const [upPublicId,setUpPublicId] = useState("")
 
-      const handleGoButtonClick = async () => {
-        setLoading(true);
-        try {
-          
-          // Make a GET request to the /download endpoint with the YouTube URL
-          await axios.get(`http://localhost:8000/download?video_link=${url}`);
-          console.log("Download request sent successfully!");
-          await axios.get("http://localhost:8000/convert");
-            console.log("Convert request sent successfully!");
 
-            // Once the /convert request is done, send a request to /subtitles
-            await axios.get("http://localhost:8000/subtitles");
-            console.log("Subtitles request sent successfully!");
-            const response = await axios.post("http://localhost:8000/cloud");
-            console.log("Public ID:", response.data.public_id);
-            setPublicId(response.data.public_id);
-        } catch (error) {
-          console.error("Error", error);
-          // Handle errors if any
-        }finally{
-          setLoading(false);
-        }
-      };
+      const handleUploadSuccess = (response:any) => {
+        console.log("Upload successful");
+        console.log("url:", response.info.url);
+        const upPublicId=response.info.public_id
+
+       
+
+      
+const handleDownload = async () => {
+
+
+  try {
+    setLoading(true); 
+    const response = await axios.get(`http://localhost:8000/uploadconvert/cloud_name=dso9pgxen"/video/upload/public_id=${upPublicId}.mp4`);
+    console.log("Download request sent successfully!");
+    await axios.get("http://localhost:8000/convert");
+    console.log("Convert request sent successfully!");
+
+    await axios.post("http://localhost:8000/subtitle");
+    console.log("Subtitles request sent successfully!");
+
+    const cloudResponse = await axios.post("http://localhost:8000/cloud?cloud_name=dso9pgxen");
+    console.log("Public ID:", cloudResponse.data.public_id);
+    setPublicId(cloudResponse.data.public_id);
+
+  } catch (error) {
+    console.error("Error", error);
+  } finally {
+    setLoading(false);
+  }
+};
+
+const handleGoButtonClick = () => {
+  console.log("go");
+  setLoading(true);
+  axios.get(`http://localhost:8000/download?video_link=${url}`)
+    .then(response => {
+      console.log("Download request sent successfully!");
+      return axios.get("http://localhost:8000/convert");
+    })
+    .then(() => {
+      console.log("Convert request sent successfully!");
+      return axios.post("http://localhost:8000/subtitle");
+    })
+    .then(() => {
+      console.log("Subtitles request sent successfully!");
+      return axios.post("http://localhost:8000/cloud?cloud_name=dso9pgxen");
+    })
+    .then(response => {
+      console.log("Public ID:", response.data.public_id);
+      setPublicId(response.data.public_id);
+    })
+    .catch(error => {
+      console.error("Error", error);
+      // Handle errors if any
+    })
+    .finally(() => {
+      setLoading(false);
+    });
+};
+
+
+
+
+
 
       const handleGetSubtitlesClick = () => {
        
         setShowVideoPlayer(true);
       };
-      useEffect(() => {
-        const fetchData = async () => {
-          try {
-            // Make a GET request to the /convert endpoint
-            await axios.get("/convert");
-            console.log("Convert request sent successfully!");
-          } catch (error) {
-            console.error("Error sending convert request:", error);
-            // Handle errors if any
-          }
-        };
-    
-        // Check if the URL is not empty and call fetchData function
-        if (url !== "") {
-          fetchData();
-        }
-      }, [url]); // Run useEffect when the URL changes
+      
     
 
       return (
@@ -95,7 +125,9 @@
                 <div className="flex justify-center items-center">
   <div className="minecraft-btn h-12 w-32 xl:text-[1rem] xl:w-64 text-center text-white text-[0.5rem] truncate p-2 border-2 border-b-4 hover:text-yellow-200 cursor-pointer">
     
-  <CldUploadWidget uploadPreset="<Your Upload Preset>">
+  <CldUploadWidget uploadPreset="captioncraft"
+  onSuccess={handleUploadSuccess}
+  >
   {({ open }) => {
     return (
       <button style={{fontFamily:'minecraft'}} onClick={() => open()}>
@@ -105,15 +137,16 @@
   }}
 </CldUploadWidget>
   </div>
-</div>
+</div>           
+{upPublicId && (
                 <div className="flex justify-center items-center">
-                  <button
+                  <button onClick={handleDownload}
                     
                     className="flex justify-center items-center minecraft-btn w-12 h-12 text-center text-white truncate p-1 border-2 border-b-4 hover:text-yellow-200"
                   >
                     <img className="scale-[100%]" src="/images/upload.png" alt="Go" />
                   </button>
-                </div>
+                </div>)}
                 </div>
 
               </div>
@@ -158,3 +191,4 @@
         </>
       );
     }
+  }

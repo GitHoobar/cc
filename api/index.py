@@ -1,11 +1,13 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 import subprocess
 import whisperx
+import pytube
 from pytube import YouTube
+import requests
 import os
-import torch
 import cloudinary
 import cloudinary.uploader
+import cloudinary.api
 from dotenv import load_dotenv
 load_dotenv()
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,14 +28,61 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "DELETE"],
     allow_headers=["*"],
 )
+
+@app.get("/upload")
+def upload_video():
+    try:
+        response = requests.get(f"http://localhost:8000/download?public_id")
+        video_url = response.json().get('url') 
+
+        return {"video_url": video_url} 
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+
+@app.get("/uploadconvert")
+def upload_convert_video(upPublicId: str):
+    try:
+        upload_response = requests.get("http://localhost:8000/upload")
+        video_url = upload_response.text  # Assuming the response directly contains the video URL
+
+        # Download the video using the provided URL
+        download_response = requests.get(video_url)
+        video_content = download_response.content
+        
+        # Save the downloaded video as an MP4 file
+        video_file_path = '../downloads/input_video.mp4'
+        with open(video_file_path, 'wb') as video_file:
+            video_file.write(video_content)
+        
+        print("Video download completed successfully!")
+        
+        # Convert video to audio using FFmpeg
+        input_file_path = video_file_path
+        output_file_path = '../downloads/input_audio.mp3'
+        ffmpeg_command = [
+            "ffmpeg",
+            "-i", input_file_path,
+            "-codec:a", "libmp3lame",
+            "-qscale:a", "2",
+            output_file_path
+        ]
+        result = subprocess.run(ffmpeg_command, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise Exception(f"FFmpeg conversion failed: {result.stderr}")
+
+        print("Conversion to MP3 completed successfully.")
+        
+        return {"message": "Download and conversion completed successfully!"}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 @app.get("/download")
 def download_and_convert_video(video_link: str):
     try:
         yt = YouTube(video_link)
-
-        # Download video
-        video_stream = yt.streams.get_highest_resolution()
-        video_file_path = '../downloads/input_video.mp4'
+        video_stream = yt.streams.first()
         video_stream.download(output_path='../downloads', filename='input_video.mp4')
         print("Video download completed successfully!")
 
@@ -64,8 +113,12 @@ def download_and_convert_video(video_link: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 @app.get("/convert")
 def convert():
+    return convert_video()
+
+def convert_video():
     def convert_seconds_to_srt_format(
         seconds: float, always_include_hours: bool = False, decimal_marker: str = "."
     ):
@@ -86,58 +139,54 @@ def convert():
             f"{hours_marker}{minutes:02d}:{seconds:02d}{decimal_marker}{milliseconds:03d}"
         )
 
-    def convert_video():
-        device = "cuda"
-        
-        audio_file = os.path.abspath("../downloads/input_audio.mp3")
+    device = "cuda"
+    audio_file = os.path.abspath("../downloads/input_audio.mp3")
+    batch_size = 4
+    compute_type = "float16"
 
-        batch_size = 4
-        compute_type = "float16"
+    # Load model with specified parameters
+    model = whisperx.load_model("medium", device, compute_type=compute_type)
 
-        # Load model with specified parameters
-        model = whisperx.load_model("medium", device, compute_type=compute_type)
+    # Load audio file
+    audio = whisperx.load_audio(audio_file)
 
-        # Load audio file
-        audio = whisperx.load_audio(audio_file)
+    # Transcribe audio using the loaded model
+    result = model.transcribe(audio, batch_size=batch_size)
 
-        # Transcribe audio using the loaded model
-        result = model.transcribe(audio, batch_size=batch_size)
+    # Load align model
+    model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
 
-        # Load align model
-        model_a, metadata = whisperx.load_align_model(language_code=result["language"], device=device)
+    # Align segments
+    result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
 
-        # Align segments
-        result = whisperx.align(result["segments"], model_a, metadata, audio, device, return_char_alignments=False)
-        
-        output_directory = "../conversions/"
-        os.makedirs(output_directory, exist_ok=True)
-        
-        srt_output_file_path = os.path.join(output_directory, "output.srt")
+    output_directory = "../conversions/"
+    os.makedirs(output_directory, exist_ok=True)
+    srt_output_file_path = os.path.join(output_directory, "output.srt")
 
-        # Convert segments to SRT format
-        srt_output = ""
-        segment_number = 1
-        
-        for segment in result['segments']:  # Access the 'segments' key to get the list of segments
-            word_number = 1
-            for word_info in segment['words']:
-                word = word_info['word']
-                start_time = convert_seconds_to_srt_format(word_info['start'], always_include_hours=True, decimal_marker=',')
-                end_time = convert_seconds_to_srt_format(word_info['end'], always_include_hours=True, decimal_marker=',')
-                
-                srt_output += f"{word_number}\n{start_time} --> {end_time}\n{word}\n\n"
-                word_number += 1
-                
-            segment_number += 1
+    # Convert segments to SRT format
+    srt_output = ""
+    segment_number = 1
 
-        # Write SRT content to a file
-        with open(srt_output_file_path, 'w') as file:
-            file.write(srt_output)
+    for segment in result['segments']:  # Access the 'segments' key to get the list of segments
+        word_number = 1
+        for word_info in segment['words']:
+            word = word_info['word']
+            start_time = convert_seconds_to_srt_format(word_info['start'], always_include_hours=True, decimal_marker=',')
+            end_time = convert_seconds_to_srt_format(word_info['end'], always_include_hours=True, decimal_marker=',')
 
-        print("SRT file has been created successfully.")
-        return {"message": "SRT file has been created successfully."}
+            srt_output += f"{word_number}\n{start_time} --> {end_time}\n{word}\n\n"
+            word_number += 1
 
-    return convert_video()
+        segment_number += 1
+
+    # Write SRT content to a file
+    with open(srt_output_file_path, 'w') as file:
+        file.write(srt_output)
+
+    print("SRT file has been created successfully.")
+    return {"message": "SRT file has been created successfully."}
+
+
 
 
 @app.post("/subtitle")
@@ -195,10 +244,10 @@ async def add_subtitle(subtitle_file: str = "../conversions/output.srt", video_f
     
 
 @app.post("/cloud")
-async def upload_to_cloudinary(subtitle_file: str = "../conversions/output_video_with_subtitles.mp4"):
+async def upload_to_cloudinary(subtitle_file: str = "../subtitles/output_video_with_subtitles.mp4"):
     try:
         # Upload the video to Cloudinary
-        upload_result = cloudinary.uploader.upload(subtitle_file, resource_type="video")
+        upload_result = cloudinary.uploader.upload(subtitle_file, resource_type="video",cloud_name="dso9pgxen")
         
         # Get the public ID from the upload result
         public_id = upload_result["public_id"]
